@@ -5,10 +5,7 @@ var board = new five.Board({
 });
 
 board.on("ready", function() {
-  var timer = 0;
+  console.log("Ready!");
   var led = new five.Led("P1-13");
-  while(timer<50){
-    led.toggle();
-    timer++;
-  }
+  led.blink();
 });
