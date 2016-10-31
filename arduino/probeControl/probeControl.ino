@@ -6,10 +6,11 @@ const int stopLedPin =  8;
 const int goLedPin =  12;
 const int backwardLedPin =  13;
 const int forwardLedPin =  7;
-const int buttonThreshold = 1000; //how many frames we need to see the button pressed to trigger
-const int stepInterval = 449;
+const int buttonThreshold = 10000; //how many frames we need to see the button pressed to trigger
+const int stopButtonThreshold = 1000; //how many frames we need to see the stop button pressed (much more sensitive)
 const int blinkInterval = 47;
 const int displayInterval = 103;
+long defaultExecutionTime = 10000; //time, in milliseconds, for the total execution
 
 
 SoftwareSerial mySerial(3,6); // pin 3 = RX (unused), pin 2 = TX, 
@@ -20,7 +21,12 @@ int moving = 0; //are we in the act of completing a move
 int moveIndex = -1; //the index in the array we should be on
 int depth = 0;
 char depthString[10];
+char speedString[10];
 
+int executionTime = defaultExecutionTime;
+int stepInterval;
+int speedUpButtonCounter = 0;
+int speedDownButtonCounter = 0;
 int stopButtonCounter = 0;
 int goButtonCounter = 0;
 int stopButtonState = 0;
@@ -32,32 +38,37 @@ unsigned long displayPreviousMillis = 0;
 
 void clearDisplay()
   {
-    resetCursor();
+    moveCursor(128);
     mySerial.write("                "); // clear display
     mySerial.write("                ");
-    resetCursor();
+    moveCursor(128);
     mySerial.write("Depth: ");
+    moveCursor(192);
+    mySerial.write("Speed: ");
+    moveCursor(205);
+    mySerial.write("sec");
   }
 
-void resetCursor()
+void moveCursor(int location)
   {
-    mySerial.write(254); // move cursor to beginning of first line
-    mySerial.write(128);
+    mySerial.write(254);
+    mySerial.write(location);
   }
 
 void updateDisplay()
   {
-    mySerial.write(254);
-    mySerial.write(136);
+    moveCursor(136);
     sprintf(depthString,"%4d",depth);
     mySerial.write(depthString);
-    mySerial.write(254);
-    mySerial.write(141);
+    moveCursor(141);
     if (moveIndex == -1 || movesArray[moveIndex] > 0){
         mySerial.write('v');
       } else {
         mySerial.write('^');
       }    
+    moveCursor(200);
+    sprintf(speedString,"%4d",(executionTime/1000));
+    mySerial.write(speedString);
   }
 
 
@@ -88,27 +99,15 @@ void startMove()
     moving = 1;
   }
 
-void setup() {
-  // initialize the LEDs pin as an output:
-  pinMode(stopLedPin, OUTPUT);
-  pinMode(goLedPin, OUTPUT);
-  pinMode(forwardLedPin, OUTPUT);
-  // initialize the pushbuttons pin as an input:
-  pinMode(stopButtonPin, INPUT);
-  pinMode(goButtonPin, INPUT);
-  mySerial.begin(9600); // set up serial port for 9600 baud
-  delay(500); // wait for display to boot up
-  clearDisplay();
-  updateDisplay();
-}
 
 void handleInputs()
   {
     //track state for the 'stop' button
     if (digitalRead(stopButtonPin) == 1){
       stopButtonCounter++;
-      if (stopButtonCounter > buttonThreshold){
+      if (stopButtonCounter > stopButtonThreshold){
           stopButtonState = 1;
+          return;
         }
       } 
       else 
@@ -129,10 +128,42 @@ void handleInputs()
         goButtonCounter = 0; 
         goButtonState = 0;
       }
+    int reading = analogRead(A0);
+    if (reading > 1005){//white button, 100ohm
+      speedUpButtonCounter++;
+      if (speedUpButtonCounter > buttonThreshold && stopButtonState == 0){
+          executionTime -= 2000;
+          speedUpButtonCounter = 0;
+        }
+    } else if (reading > 900 && reading < 1000){
+      speedDownButtonCounter++;
+      if (speedDownButtonCounter > buttonThreshold && stopButtonState == 0){
+          executionTime += 2000;
+          speedDownButtonCounter = 0;
+        }
+    }
+
+    
+   
   }
 
+void setup() {
+  // initialize the LEDs pin as an output:
+  pinMode(stopLedPin, OUTPUT);
+  pinMode(goLedPin, OUTPUT);
+  pinMode(forwardLedPin, OUTPUT);
+  pinMode(A0, INPUT);
+  // initialize the pushbuttons pin as an input:
+  pinMode(stopButtonPin, INPUT);
+  pinMode(goButtonPin, INPUT);
+  mySerial.begin(9600); // set up serial port for 9600 baud
+  delay(500); // wait for display to boot up
+  clearDisplay();
+  updateDisplay();
+}
 
 void loop() {
+  stepInterval = executionTime/movesArray[0];
   handleInputs();
   digitalWrite(stopLedPin, stopButtonState);
   digitalWrite(goLedPin, goButtonState);
@@ -144,11 +175,9 @@ void loop() {
     {
       stopMove();
     }
-
   
   unsigned long currentMillis = millis();
        
-   // How much time has passed, accounting for rollover with subtraction!
    if ((unsigned long)(currentMillis - blueLedPreviousMillis) >= blinkInterval && moving) {
       digitalWrite(forwardLedPin, !digitalRead(forwardLedPin)); // Toggle the LED
        blueLedPreviousMillis = currentMillis;
@@ -161,7 +190,4 @@ void loop() {
     move();
     stepPreviousMillis = currentMillis;
    }
-   
-
-
 }
